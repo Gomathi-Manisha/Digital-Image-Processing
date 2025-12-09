@@ -1,0 +1,150 @@
+# ==========================
+# Spatial Filtering – Colab
+# ==========================
+
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+from google.colab import files
+
+# 1. Upload the image (upload "Torgya - Arunachal Festival.jpg")
+print("Upload the image (Torgya - Arunachal Festival.jpg)...")
+uploaded = files.upload()
+
+# Get uploaded file name (first file)
+filename = next(iter(uploaded.keys()))
+print("Using file:", filename)
+
+# Read image in BGR then convert to RGB for display
+img_bgr = cv2.imread(filename)
+if img_bgr is None:
+    raise ValueError("Could not read the uploaded image. Check the file name/format.")
+
+img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)  # keep as color (3-channel)
+
+# Helper function to display images nicely
+def show_image(title, image, pos, total):
+    plt.subplot(1, total, pos)
+    plt.imshow(image)
+    plt.title(title)
+    plt.axis('off')
+
+# 2. BOX FILTERS (5x5 and 20x20) WITH & WITHOUT NORMALIZATION
+
+
+# 5x5 box kernels
+box5 = np.ones((5, 5), np.float32)           # unnormalized
+box5_norm = box5 / box5.size                 # normalized (sum = 1)
+
+# 20x20 box kernels
+box20 = np.ones((20, 20), np.float32)        # unnormalized
+box20_norm = box20 / box20.size              # normalized (sum = 1)
+
+# Apply filters per channel automatically
+img_box5 = cv2.filter2D(img, -1, box5)
+img_box5_norm = cv2.filter2D(img, -1, box5_norm)
+img_box20 = cv2.filter2D(img, -1, box20)
+img_box20_norm = cv2.filter2D(img, -1, box20_norm)
+
+# Show box filter results
+plt.figure(figsize=(16, 8))
+show_image("Original", img, 1, 5)
+show_image("5x5 Box (unnorm.)", img_box5, 2, 5)
+show_image("5x5 Box (norm.)", img_box5_norm, 3, 5)
+show_image("20x20 Box (unnorm.)", img_box20, 4, 5)
+show_image("20x20 Box (norm.)", img_box20_norm, 5, 5)
+plt.tight_layout()
+plt.show()
+
+# 3. GAUSSIAN: COMPUTE SIGMA FROM KERNEL SIZE, THEN USE SIGMA TO GET FILTER SIZE
+
+# For a Gaussian, a common rule is:
+#   kernel_size ≈ 6 * sigma + 1  (covers ~±3σ)
+# -> sigma ≈ (kernel_size - 1) / 6
+
+def sigma_from_kernel_size(k):
+    return (k - 1) / 6.0
+
+def kernel_size_from_sigma(sigma):
+    return int(2 * np.ceil(3 * sigma) + 1)
+
+# Example 1: derive sigma for a 5x5-like Gaussian kernel
+k_gauss1 = 5
+sigma1 = sigma_from_kernel_size(k_gauss1)
+
+# Example 2: derive sigma for a 21x21-like Gaussian kernel (similar to 20x20 box)
+k_gauss2 = 21
+sigma2 = sigma_from_kernel_size(k_gauss2)
+
+print(f"Gaussian 1: desired kernel size = {k_gauss1}, computed sigma = {sigma1:.3f}")
+print(f"Gaussian 2: desired kernel size = {k_gauss2}, computed sigma = {sigma2:.3f}")
+
+# We'll use sigma2 (stronger blur) and recompute kernel size exactly from it
+sigma = sigma2
+k = kernel_size_from_sigma(sigma)
+print(f"Using sigma = {sigma:.3f}, final Gaussian kernel size = {k}")
+
+# 4. BUILD SEPARABLE GAUSSIAN KERNELS (1-D) – NORMALIZED & UNNORMALIZED
+half = k // 2
+x = np.arange(-half, half + 1)
+
+# Unnormalized 1D Gaussian
+g_1d = np.exp(-(x**2) / (2 * sigma**2))
+
+# Normalized 1D Gaussian
+g_1d_norm = g_1d / g_1d.sum()
+
+# Reshape for separable filtering
+g_row = g_1d.reshape(1, -1).astype(np.float32)       # 1 x k
+g_col = g_1d.reshape(-1, 1).astype(np.float32)       # k x 1
+g_row_norm = g_1d_norm.reshape(1, -1).astype(np.float32)
+g_col_norm = g_1d_norm.reshape(-1, 1).astype(np.float32)
+
+# 5. APPLY SEPARABLE GAUSSIAN FILTERS
+
+
+# (a) Separable Gaussian – UNNORMALIZED
+tmp_gauss = cv2.filter2D(img, -1, g_row)       # horizontal
+img_gauss = cv2.filter2D(tmp_gauss, -1, g_col) # vertical
+
+# (b) Separable Gaussian – NORMALIZED
+tmp_gauss_norm = cv2.filter2D(img, -1, g_row_norm)
+img_gauss_norm = cv2.filter2D(tmp_gauss_norm, -1, g_col_norm)
+
+# 6. DISPLAY GAUSSIAN RESULTS
+
+plt.figure(figsize=(16, 6))
+show_image("Original", img, 1, 3)
+show_image(f"Gaussian (unnorm.)\nσ={sigma:.2f}, k={k}", img_gauss, 2, 3)
+show_image(f"Gaussian (normalized)\nσ={sigma:.2f}, k={k}", img_gauss_norm, 3, 3)
+plt.tight_layout()
+plt.show()
+
+print("Done. You now have:")
+print("- 5x5 & 20x20 box filters (normalized and unnormalized)")
+print("- Separable Gaussian filter and separable normalized Gaussian filter")
+
+
+# Convert RGB to BGR for saving using OpenCV
+def save_bgr(name, image_rgb):
+    cv2.imwrite(name, cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR))
+
+# Save Box Filter results
+save_bgr("torgya_box5.jpg", img_box5)
+save_bgr("torgya_box5_norm.jpg", img_box5_norm)
+save_bgr("torgya_box20.jpg", img_box20)
+save_bgr("torgya_box20_norm.jpg", img_box20_norm)
+
+# Save Gaussian Results
+save_bgr("torgya_gauss_unnorm.jpg", img_gauss)
+save_bgr("torgya_gauss_norm.jpg", img_gauss_norm)
+
+# Download
+files.download("torgya_box5.jpg")
+files.download("torgya_box5_norm.jpg")
+files.download("torgya_box20.jpg")
+files.download("torgya_box20_norm.jpg")
+files.download("torgya_gauss_unnorm.jpg")
+files.download("torgya_gauss_norm.jpg")
+
+print("All processed images have been saved and are ready for download.")
